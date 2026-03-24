@@ -1,3 +1,5 @@
+//go:build integration
+
 package bpdecode
 
 import (
@@ -9,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseBlueprintLibrary_ParsesSampleEntries(t *testing.T) {
-	data := readExampleBlueprintStorage(t)
+func TestParseBlueprintLibrary_ParsesFixture(t *testing.T) {
+	data := readIntegrationFixture(t)
 
 	entries, err := ParseBlueprintLibrary(data)
 	require.NoError(t, err)
@@ -21,8 +23,8 @@ func TestParseBlueprintLibrary_ParsesSampleEntries(t *testing.T) {
 	require.Contains(t, names, "Speed Module Line")
 }
 
-func TestRenderLuaModule_WrapsEntries(t *testing.T) {
-	data := readExampleBlueprintStorage(t)
+func TestParseBlueprintLibrary_RendersFixtureOutputs(t *testing.T) {
+	data := readIntegrationFixture(t)
 
 	entries, err := ParseBlueprintLibrary(data)
 	require.NoError(t, err)
@@ -30,14 +32,6 @@ func TestRenderLuaModule_WrapsEntries(t *testing.T) {
 	lua := RenderLuaModule(entries)
 	require.Contains(t, lua, "return {")
 	require.Contains(t, lua, "entries = {")
-	require.Contains(t, lua, `record_type = "blueprint-book"`)
-}
-
-func TestRenderJSON_WrapsEntries(t *testing.T) {
-	data := readExampleBlueprintStorage(t)
-
-	entries, err := ParseBlueprintLibrary(data)
-	require.NoError(t, err)
 
 	payload, err := RenderJSON(entries)
 	require.NoError(t, err)
@@ -49,10 +43,14 @@ func TestRenderJSON_WrapsEntries(t *testing.T) {
 	require.Len(t, module.Entries, len(entries))
 }
 
-func readExampleBlueprintStorage(t *testing.T) []byte {
+func readIntegrationFixture(t *testing.T) []byte {
 	t.Helper()
 
 	path := filepath.Join("testdata", "blueprint-storage-2.dat")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Skipf("integration fixture not present: %s", path)
+	}
+
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 

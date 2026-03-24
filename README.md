@@ -62,7 +62,22 @@ Renderer behavior:
 - JSON output is shaped as `{ "entries": [...] }`
 - empty `icon_sprite` becomes `false` in Lua and `""` in JSON
 
-The repository includes its own sample fixture at `testdata/blueprint-storage-2.dat` for local tests. The `testdata` directory is kept as a nested module so the large fixture is not shipped to downstream consumers through `go get`.
+## Testing
+
+Lightweight tests ship with the module and run with:
+
+```bash
+go test ./...
+go build ./...
+```
+
+Fixture-backed parser regression tests are kept separate as integration tests:
+
+```bash
+go test -tags=integration ./...
+```
+
+Those integration tests read `testdata/blueprint-storage-2.dat` from a repository checkout. The `testdata` directory is intentionally a nested module so the large fixture stays in the repository for local and CI testing, but is excluded from the published root module downloaded by `go get`.
 
 ## Technical Notes
 
@@ -161,46 +176,6 @@ The sample file contains valid object-like records after the main root object ta
 - for blueprints, start with a plausible version/separator/migration pattern
 
 This recovery pass is what raises the bundled sample output to thousands of entries instead of only the primary root set.
-
-### Sample Fixture Offsets
-
-These offsets are specific to the bundled fixture `testdata/blueprint-storage-2.dat`. They are useful for debugging and reverse-engineering, but they are not fixed across all files.
-
-Sample facts:
-
-- file size: `52,114,925` bytes
-- bytes `0..7` encode version `2.0.76.0`
-- byte `8` is the first separator `0x00`
-- byte `9` is the migration count `0x0d`
-- root object table starts at offset `18985`
-- root object count there is `31`
-- the first root blueprint starts at `18989`
-- for that first blueprint:
-  - label starts at `18997`
-  - content starts at `19047`
-  - content ends at `19727`
-- embedded recovery becomes relevant after roughly `155361`
-
-Example bytes at the root table:
-
-```text
-18985: 1f 00 00 00
-```
-
-This is the root slot count `31`.
-
-Example bytes for the first root blueprint:
-
-```text
-18989: 01 00 05 00 00 00 4d 00 ...
-```
-
-Meaning:
-
-- slot used
-- blueprint prefix
-- generation counter
-- item ID
 
 ### Current Limits
 
