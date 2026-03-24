@@ -62,7 +62,7 @@ Renderer behavior:
 - JSON output is shaped as `{ "entries": [...] }`
 - empty `icon_sprite` becomes `false` in Lua and `""` in JSON
 
-The module includes its own sample fixture at `testdata/blueprint-storage-2.dat`, so tests work after moving this package into a separate repository.
+The repository includes its own sample fixture at `testdata/blueprint-storage-2.dat` for local tests. The `testdata` directory is kept as a nested module so the large fixture is not shipped to downstream consumers through `go get`.
 
 ## Technical Notes
 
