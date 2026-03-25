@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -90,6 +91,7 @@ func prototypeCategory(prototype string) signalKind {
 type libraryNode struct {
 	Kind        string
 	Slot        int
+	PathValid   bool
 	Label       string
 	Description string
 	IconSprite  string
@@ -247,7 +249,7 @@ func ParseBlueprintLibrary(data []byte) ([]Entry, error) {
 		return nil, fmt.Errorf("read library object marker: %w", err)
 	}
 
-	nodes, err := parseLibraryObjects(stream, index, version)
+	nodes, err := parseLibraryObjects(stream, index, version, 1, true)
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +370,7 @@ func usesWidePrototypeIDs(version storageVersion, prototypeName string) bool {
 	return prototypeName != "tile"
 }
 
-func parseLibraryObjects(stream *byteStream, index *prototypeIndex, version storageVersion) ([]libraryNode, error) {
+func parseLibraryObjects(stream *byteStream, index *prototypeIndex, version storageVersion, slotBase int, pathValid bool) ([]libraryNode, error) {
 	objectCount, err := stream.u32()
 	if err != nil {
 		return nil, err
@@ -401,14 +403,16 @@ func parseLibraryObjects(stream *byteStream, index *prototypeIndex, version stor
 			if err != nil {
 				return nil, fmt.Errorf("parse blueprint at slot %d: %w", slot+1, err)
 			}
-			node.Slot = slot + 1
+			node.Slot = slot + slotBase
+			node.PathValid = pathValid
 			nodes = append(nodes, node)
 		case 1:
-			node, err := parseBlueprintBook(stream, index, version)
+			node, err := parseBlueprintBook(stream, index, version, pathValid)
 			if err != nil {
 				return nil, fmt.Errorf("parse blueprint book at slot %d: %w", slot+1, err)
 			}
-			node.Slot = slot + 1
+			node.Slot = slot + slotBase
+			node.PathValid = pathValid
 			nodes = append(nodes, node)
 		case 2:
 			if err := skipDeconstructionPlanner(stream, version); err != nil {
@@ -506,6 +510,7 @@ func recoverEmbeddedObjects(data []byte, start int, index *prototypeIndex, versi
 		}
 
 		recoveredObject.node.Slot = nextSlot
+		recoveredObject.node.PathValid = false
 		nextSlot++
 		recovered = append(recovered, recoveredObject.node)
 
@@ -557,7 +562,7 @@ func tryRecoverEmbeddedObject(data []byte, offset int, index *prototypeIndex, ve
 		}, true
 	}
 
-	node, err := parseBlueprintBook(stream, index, version)
+	node, err := parseBlueprintBook(stream, index, version, false)
 	if err == nil && looksLikeUserText(node.Label) {
 		return recoveredObject{
 			node:      node,
@@ -574,6 +579,7 @@ func tryRecoverEmbeddedObject(data []byte, offset int, index *prototypeIndex, ve
 	if err != nil || !looksLikeUserText(node.Label) {
 		return recoveredObject{}, false
 	}
+	node.PathValid = false
 
 	return recoveredObject{node: node}, true
 }
@@ -796,7 +802,7 @@ func iconFromLabel(label string) string {
 	return ""
 }
 
-func parseBlueprintBook(stream *byteStream, index *prototypeIndex, version storageVersion) (libraryNode, error) {
+func parseBlueprintBook(stream *byteStream, index *prototypeIndex, version storageVersion, pathValid bool) (libraryNode, error) {
 	label, err := stream.string()
 	if err != nil {
 		return libraryNode{}, err
@@ -809,7 +815,7 @@ func parseBlueprintBook(stream *byteStream, index *prototypeIndex, version stora
 	if err != nil {
 		return libraryNode{}, err
 	}
-	children, err := parseLibraryObjects(stream, index, version)
+	children, err := parseLibraryObjects(stream, index, version, 0, pathValid)
 	if err != nil {
 		return libraryNode{}, err
 	}
@@ -1020,17 +1026,26 @@ func skipUpgradeMapper(stream *byteStream) error {
 func flattenNodes(nodes []libraryNode) []Entry {
 	entries := make([]Entry, 0)
 	for _, node := range nodes {
-		flattenNode(&entries, node, nil, "")
+		flattenNode(&entries, node, nil, nil, "")
 	}
 	return entries
 }
 
-func flattenNode(entries *[]Entry, node libraryNode, path []int, parentPathKey string) string {
-	currentPath := append(copyInts(path), node.Slot)
-	pathKey := joinPath(currentPath)
+func flattenNode(entries *[]Entry, node libraryNode, path []int, breadcrumbs []string, parentPathKey string) string {
+	currentPath := []int{}
+	pathKey := ""
+	if node.PathValid {
+		currentPath = append(copyInts(path), node.Slot)
+		pathKey = joinPath(currentPath)
+	} else if parentPathKey == "" {
+		pathKey = fmt.Sprintf("recovered:%d", node.Slot)
+	} else {
+		pathKey = parentPathKey + "/" + strconv.Itoa(node.Slot)
+	}
+
 	name := fallbackName(node.Label)
-	breadcrumbs := append(breadcrumbSegments(path, *entries), name)
-	breadcrumb := stringsJoin(breadcrumbs, " / ")
+	currentBreadcrumbs := append(copyStrings(breadcrumbs), name)
+	breadcrumb := stringsJoin(currentBreadcrumbs, " / ")
 
 	entry := Entry{
 		Path:              currentPath,
@@ -1055,33 +1070,9 @@ func flattenNode(entries *[]Entry, node libraryNode, path []int, parentPathKey s
 	*entries = append(*entries, entry)
 
 	for _, child := range node.Children {
-		childPathKey := flattenNode(entries, child, currentPath, pathKey)
+		childPathKey := flattenNode(entries, child, currentPath, currentBreadcrumbs, pathKey)
 		(*entries)[entryIndex].ChildPathKeys = append((*entries)[entryIndex].ChildPathKeys, childPathKey)
 	}
 
 	return pathKey
-}
-
-func breadcrumbSegments(path []int, entries []Entry) []string {
-	if len(path) == 0 {
-		return nil
-	}
-
-	segments := make([]string, 0)
-	current := ""
-	for i := 0; i < len(path); i++ {
-		if i == 0 {
-			current = fmt.Sprintf("%d", path[i])
-		} else {
-			current = current + "." + fmt.Sprintf("%d", path[i])
-		}
-		for _, entry := range entries {
-			if entry.PathKey == current {
-				segments = append(segments, entry.Name)
-				break
-			}
-		}
-	}
-
-	return segments
 }

@@ -62,6 +62,12 @@ Renderer behavior:
 - JSON output is shaped as `{ "entries": [...] }`
 - empty `icon_sprite` becomes `false` in Lua and `""` in JSON
 
+Path behavior:
+
+- top-level `Entry.Path` segments map to `player.blueprints[slot]`
+- nested blueprint-book `Entry.Path` segments map to `record.contents[slot]`
+- recovered tail objects that cannot be mapped back to a guaranteed live runtime path keep a synthetic `PathKey`, but expose an empty `Path`
+
 ## Testing
 
 Lightweight tests ship with the module and run with:
